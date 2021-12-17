@@ -10,7 +10,7 @@ Servis treba da implementira sledeći interface:
 
 ## Dizajn sistema
 
-![IKP - PubSub servis](https://i.ibb.co/R9876DW/IKP.png)
+![IKP - PubSub servis](https://i.postimg.cc/N0HVwskv/IKP.png)
 
 ## Formatiranje GitHub repozitorijuma
  
