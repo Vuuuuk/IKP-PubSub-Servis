@@ -1,6 +1,7 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <conio.h>
 
 #define DEFAULT_BUFLEN 512
 #define SERVER_SLEEP_TIME 50
@@ -9,22 +10,27 @@
 
 bool InitializeWindowsSockets();
 DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter);
+DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter);
 
-struct PublisherParameters
+struct Parameters
 {
     SOCKET listenSocketPublisher;
-    SOCKET acceptedSocketPublisher;
+    //SOCKET acceptedSocketPublisher;
+    bool end;
+    HANDLE semaphore;
 };
 
 int main(void) 
 {
     HANDLE hThreadProducer;
     DWORD threadIDProducer;
+    HANDLE hThreadConsumer;
+    DWORD threadIDConsumer;
 
     SOCKET listenSocketSubscriber = INVALID_SOCKET;
     SOCKET listenSocketPublisher = INVALID_SOCKET;
-    SOCKET acceptedSocketSubscriber = INVALID_SOCKET;
-    SOCKET acceptedSocketPublisher = INVALID_SOCKET;
+  /*  SOCKET acceptedSocketSubscriber = INVALID_SOCKET;
+    SOCKET acceptedSocketPublisher = INVALID_SOCKET;*/
     int iResultSubscriber;
     int iResultPublisher;
     char recvbufSubscriber[DEFAULT_BUFLEN];
@@ -106,6 +112,18 @@ int main(void)
         return 1;
     }
 
+    //SETTING UP NON-BLOCKING MODE
+    iResultPublisher = ioctlsocket(listenSocketPublisher, FIONBIO, &nonBlockingMode);
+
+    if (iResultPublisher == SOCKET_ERROR)
+    {
+        printf("bind - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
+        freeaddrinfo(resultingAddressPublisher);
+        closesocket(listenSocketPublisher);
+        WSACleanup();
+        return 1;
+    }
+
     freeaddrinfo(resultingAddressSubscriber);
     freeaddrinfo(resultingAddressPublisher);
 
@@ -129,17 +147,185 @@ int main(void)
         return 1;
     }
 
+    bool end=false;
+    char c = NULL;
 	printf("Engine initialized, waiting for Clients/Publishers.\n\n");
 
+   // HANDLE hSemaphore = CreateSemaphore(0, 0, 1, NULL);
+ 
     //PUBLISHER RECEIVE
-    PublisherParameters pp;
-    pp.acceptedSocketPublisher = acceptedSocketPublisher;
+    Parameters pp;
+ //   pp.acceptedSocketPublisher = acceptedSocketPublisher;
     pp.listenSocketPublisher = listenSocketPublisher;
-    hThreadProducer = CreateThread(NULL, 0, &ReceiveMessageProducer, &pp, 0, &threadIDProducer);
+    pp.end = end;
+    //pp.semaphore = hSemaphore;
+    Parameters* pokpp = &pp;
+
+    hThreadProducer = CreateThread(NULL, 0, &ReceiveMessageProducer, (LPVOID)pokpp, 0, &threadIDProducer);
 
     //SUBSCRIBER RECEIVE
-    do
+    Parameters sp;
+   // sp.acceptedSocketPublisher = acceptedSocketSubscriber;
+    sp.listenSocketPublisher = listenSocketSubscriber;
+    sp.end = end;
+    //sp.semaphore = hSemaphore;
+    Parameters* poksp = &sp;
+    hThreadConsumer = CreateThread(NULL, 0, &ReceiveMessageConsumer, (LPVOID)poksp, 0, &threadIDConsumer);
+
+  /*  while (1)
+    {*/
+       /* if (kbhit())
+        {*/
+            c = getchar();
+            if (c == 'q')
+            {
+                end = true;
+              //  break;
+            }
+           
+       // }
+       
+        //ReleaseSemaphore(hSemaphore, 1, NULL);
+        //Sleep(100);
+   // }
+  
+    CloseHandle(hThreadProducer);
+    CloseHandle(hThreadConsumer);
+   // CloseHandle(hSemaphore);
+    WSACleanup();
+
+    return 0;
+}
+
+DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
+{
+    int iResultPublisher;
+    char recvbufPublisher[DEFAULT_BUFLEN];
+
+    SOCKET acceptedSocketPublisher = INVALID_SOCKET;//((Parameters*)lpParameter)->acceptedSocketPublisher;
+    SOCKET listenSocketPublisher = ((Parameters*)lpParameter)->listenSocketPublisher;
+    HANDLE semaphore = ((Parameters*)lpParameter)->semaphore;
+    bool end = ((Parameters*)lpParameter)->end;
+   
+
+    while (end==false)
     {
+        //WaitForSingleObject(semaphore, INFINITE);
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(listenSocketPublisher ,&set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        //SUBSCRIBER NON BLOCKING
+        iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
+
+        if (iResultPublisher == SOCKET_ERROR)
+        {
+            if (WSAGetLastError() == 10093)
+                Sleep(1000);
+            else
+             fprintf(stderr, "select - [PUBLISHER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResultPublisher == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+
+        acceptedSocketPublisher = accept(listenSocketPublisher, NULL, NULL);
+
+        if (acceptedSocketPublisher == INVALID_SOCKET)
+        {
+            printf("accept - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
+            closesocket(listenSocketPublisher);
+            WSACleanup();
+            return 1;
+        }
+
+        do
+        {
+            FD_SET set;
+            timeval timeVal;
+
+            FD_ZERO(&set);
+            FD_SET(acceptedSocketPublisher, &set);
+
+            timeVal.tv_sec = 0;
+            timeVal.tv_usec = 0;
+
+            iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
+
+            if (iResultPublisher == SOCKET_ERROR)
+            {
+                if (WSAGetLastError() == 10093)
+                    Sleep(1000);
+                else
+                    fprintf(stderr, "select- [PUBLISHER] failed with error: %ld\n", WSAGetLastError());
+                continue;
+            }
+
+            if (iResultPublisher == 0)
+            {
+                Sleep(SERVER_SLEEP_TIME);
+                continue;
+            }
+
+            iResultPublisher = recv(acceptedSocketPublisher, recvbufPublisher, 41, 0);
+
+            if (iResultPublisher > 0)
+            {
+                printf("Message - received from PUBLISHER: %s\n", recvbufPublisher);
+            }
+            else if (iResultPublisher == 0)
+            {
+                printf("Connection with PUBLISHER closed.\n");
+                closesocket(acceptedSocketPublisher);
+            }
+            else
+            {
+                printf("recv  - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
+                closesocket(acceptedSocketPublisher);
+            }
+        } while (iResultPublisher > 0);
+
+    }
+    
+    //PUBLISHER CONNNECTION CLOSE
+    iResultPublisher = shutdown(acceptedSocketPublisher, SD_SEND);
+    if (iResultPublisher == SOCKET_ERROR)
+    {
+        printf("shutdown - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
+        closesocket(acceptedSocketPublisher);
+        WSACleanup();
+        return 1;
+    }
+
+    closesocket(listenSocketPublisher);
+    closesocket(acceptedSocketPublisher);
+
+    return 0;
+}
+DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
+{
+    int iResultSubscriber;
+    char recvbufSubscriber[DEFAULT_BUFLEN];
+
+    
+    SOCKET acceptedSocketSubscriber = INVALID_SOCKET;//((Parameters*)lpParameter)->acceptedSocketPublisher;
+    SOCKET listenSocketSubscriber = ((Parameters*)lpParameter)->listenSocketPublisher;
+    bool end = ((Parameters*)lpParameter)->end;
+    HANDLE semaphore = ((Parameters*)lpParameter)->semaphore;
+    
+
+    while (end == false)
+    {
+        //WaitForSingleObject(semaphore, INFINITE);
         FD_SET set;
         timeval timeVal;
 
@@ -154,7 +340,10 @@ int main(void)
 
         if (iResultSubscriber == SOCKET_ERROR)
         {
-            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            if (WSAGetLastError() == 10093)
+                Sleep(1000);
+            else
+                fprintf(stderr, "select- [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
             continue;
         }
 
@@ -189,7 +378,10 @@ int main(void)
 
             if (iResultSubscriber == SOCKET_ERROR)
             {
-                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+                if (WSAGetLastError() == 10093)
+                    Sleep(1000);
+                else
+                    fprintf(stderr, "select- [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
                 continue;
             }
 
@@ -199,7 +391,7 @@ int main(void)
                 continue;
             }
 
-            iResultSubscriber = recv(acceptedSocketSubscriber, recvbufSubscriber, 42, 0); 
+            iResultSubscriber = recv(acceptedSocketSubscriber, recvbufSubscriber, 42, 0);
 
             if (iResultSubscriber > 0)
             {
@@ -216,8 +408,7 @@ int main(void)
                 closesocket(acceptedSocketSubscriber);
             }
         } while (iResultSubscriber > 0);
-
-    } while (1);
+    }
 
     //SUBSCRIBER CONNNECTION CLOSE
     iResultSubscriber = shutdown(acceptedSocketSubscriber, SD_SEND);
@@ -229,77 +420,14 @@ int main(void)
         return 1;
     }
 
-    //PUBLISHER CONNNECTION CLOSE
-    iResultPublisher = shutdown(acceptedSocketPublisher, SD_SEND);
-    if (iResultPublisher == SOCKET_ERROR)
-    {
-        printf("shutdown - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
-        closesocket(acceptedSocketPublisher);
-        WSACleanup();
-        return 1;
-    }
-
     closesocket(listenSocketSubscriber);
-    closesocket(listenSocketPublisher);
     closesocket(acceptedSocketSubscriber);
-    closesocket(acceptedSocketPublisher);
-    WSACleanup();
+     
+ 
 
     return 0;
-}
 
-DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
-{
-    int iResultPublisher;
-    char recvbufPublisher[DEFAULT_BUFLEN];
 
-    /*
-    SOCKET& acceptedSocketPublisher = ((PublisherParameters*)lpParameter)->acceptedSocketPublisher;
-    SOCKET& listenSocketPublisher = ((PublisherParameters*)lpParameter)->listenSocketPublisher;
-    */
-
-    /*
-    SOCKET acceptedSocketPublisher = ((PublisherParameters*)lpParameter)->acceptedSocketPublisher;
-    SOCKET listenSocketPublisher = ((PublisherParameters*)lpParameter)->listenSocketPublisher;
-    */
-
-    SOCKET& acceptedSocketPublisher = *((SOCKET*)lpParameter);
-    SOCKET& listenSocketPublisher = *((SOCKET*)lpParameter);
-
-    while (1)
-    {
-        acceptedSocketPublisher = accept(listenSocketPublisher, NULL, NULL);
-
-        if (acceptedSocketPublisher == INVALID_SOCKET)
-        {
-            printf("accept - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
-            closesocket(listenSocketPublisher);
-            WSACleanup();
-            return 1;
-        }
-
-        do
-        {
-            iResultPublisher = recv(acceptedSocketPublisher, recvbufPublisher, 41, 0);
-
-            if (iResultPublisher > 0)
-            {
-                printf("Message - received from PUBLISHER: %s\n", recvbufPublisher);
-            }
-            else if (iResultPublisher == 0)
-            {
-                printf("Connection with PUBLISHER closed.\n");
-                closesocket(acceptedSocketPublisher);
-            }
-            else
-            {
-                printf("recv  - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
-                closesocket(acceptedSocketPublisher);
-            }
-        } while (iResultPublisher > 0);
-    }
-
-    return 0;
 }
 
 bool InitializeWindowsSockets()

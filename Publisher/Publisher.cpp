@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <conio.h>
 
+#define SERVER_SLEEP_TIME 50
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT 28000
 
@@ -47,9 +48,41 @@ int __cdecl main(int argc, char **argv)
         closesocket(connectSocket);
         WSACleanup();
     }
- 
+    //SETTING UP NON-BLOCKING MODE
+    unsigned long int nonBlockingMode = 1;
+    iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
+    if (iResult == SOCKET_ERROR)
+    {
+        printf("connect - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
+        closesocket(connectSocket);
+        WSACleanup();
+        return 1;
+    }
     while (1)
     {
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(connectSocket, &set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResult = select(0, NULL, &set, NULL, &timeVal);
+
+        if (iResult == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResult == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+
         //MESSAGE PREPARATION
         iResult = send(connectSocket, messageToSend, (int)strlen(messageToSend) + 1, 0);
 

@@ -53,6 +53,13 @@ int __cdecl main(int argc, char **argv)
     //SETTING UP NON-BLOCKING MODE
     unsigned long int nonBlockingMode = 1;
     iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
+    if (iResult == SOCKET_ERROR)
+    {
+        printf("connect - [SUBSCRIBER] failed with error: %d\n", WSAGetLastError());
+        closesocket(connectSocket);
+        WSACleanup();
+        return 1;
+    }
     while (1)
     {
         FD_SET set;
@@ -89,7 +96,7 @@ int __cdecl main(int argc, char **argv)
             return 1;
         }
 
-        printf("[SUBSCRIBER %d ] - Message Sent.\n", i);
+        printf("[SUBSCRIBER %d ] - Message Sent.\n");
     }
 
     closesocket(connectSocket);
