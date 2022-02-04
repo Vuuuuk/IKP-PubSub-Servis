@@ -17,7 +17,16 @@ int __cdecl main(int argc, char **argv)
 {
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
-    char* messageToSend = "This is a test message from a Publisher.";
+    //char* messageToSend = "this is a test";
+    char* m = "f";
+    //int duzina = (int)strlen(messageToSend) + 1;
+
+    //printf("duzina je %d\n", duzina);
+
+    //char* nizZaSlanje = (char*)malloc(duzina + 4);
+    //*((int*)nizZaSlanje) = duzina;
+    //memcpy(nizZaSlanje + 4, messageToSend, duzina);
+    //printf("Niz koji saljemo je %s", nizZaSlanje);
    
 
     if(InitializeWindowsSockets() == false)
@@ -58,9 +67,10 @@ int __cdecl main(int argc, char **argv)
         WSACleanup();
         return 1;
     }
-    while (1)
+   // printf("Unesite karakter za slanje\n");
+  /*  while (1)
     {
-        FD_SET set;
+     */ FD_SET set;
         timeval timeVal;
 
         FD_ZERO(&set);
@@ -74,17 +84,18 @@ int __cdecl main(int argc, char **argv)
         if (iResult == SOCKET_ERROR)
         {
             fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-            continue;
+            //continue;
         }
 
         if (iResult == 0)
         {
             Sleep(SERVER_SLEEP_TIME);
-            continue;
+           // continue;
         }
+        
 
         //MESSAGE PREPARATION
-        iResult = send(connectSocket, messageToSend, (int)strlen(messageToSend) + 1, 0);
+        iResult = send(connectSocket, m, 1, 0);
 
         if (iResult == SOCKET_ERROR)
         {
@@ -94,9 +105,9 @@ int __cdecl main(int argc, char **argv)
             return 1;
         }
 
-        printf("[PUBLISHER] - Message Sent.\n");
-    }
-
+         printf("Bytes Sent: %ld\n", iResult);
+    //}
+    char c = getchar();
     closesocket(connectSocket);
     WSACleanup();
 
