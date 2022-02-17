@@ -55,6 +55,7 @@ int __cdecl main(int argc, char **argv)
     iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
     while (1)
     {
+        
         FD_SET set;
         timeval timeVal;
 
@@ -89,9 +90,9 @@ int __cdecl main(int argc, char **argv)
             return 1;
         }
 
-        printf("[SUBSCRIBER %d ] - Message Sent.\n", i);
+        printf("[SUBSCRIBER] - Message Sent.\n");
+    
     }
-
     closesocket(connectSocket);
     WSACleanup();
 
