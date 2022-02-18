@@ -15,15 +15,14 @@ struct Parameters
 {
     SOCKET listenSocketPublisher;
     SOCKET acceptedSocketPublisher;
+    HANDLE empty;
+    HANDLE full;
+    char* buffer;
+
 };
 
 int main(void) 
 {
-    HANDLE threadProducer;
-    DWORD threadIDProducer;
-
-    HANDLE threadConsumer;
-    DWORD threadIDConsumer;
 
     SOCKET listenSocketSubscriber = INVALID_SOCKET;
     SOCKET listenSocketPublisher = INVALID_SOCKET;
@@ -31,8 +30,21 @@ int main(void)
     SOCKET acceptedSocketPublisher = INVALID_SOCKET;
     int iResultSubscriber;
     int iResultPublisher;
-    char recvbufSubscriber[DEFAULT_BUFLEN];
-    char recvbufPublisher[DEFAULT_BUFLEN];
+    char recvBuf[DEFAULT_BUFLEN];
+
+    HANDLE threadProducer;
+    DWORD threadIDProducer;
+
+    HANDLE threadConsumer;
+    DWORD threadIDConsumer;
+
+    //Creating semaphores for sinhronization
+    HANDLE Empty = CreateSemaphore(0, 100, 100, NULL);
+    HANDLE Full = CreateSemaphore(0, 0, 100, NULL);
+    HANDLE AfkSolver = CreateSemaphore(0, 0, 100, NULL);
+
+    //Safe access over shared data
+    CRITICAL_SECTION bufferAccess;
     
     if(InitializeWindowsSockets() == false)
 		return 1;
@@ -135,28 +147,41 @@ int main(void)
 
 	printf("Engine initialized, waiting for Clients/Publishers.\n\n");
 
-    // PUBLISHER THREAD PARAMETERS
+    //CRITICAL SECTION INICIALIZATION
+   // InitializeCriticalSection(&bufferAccess);
+
+    //PUBLISHER THREAD PARAMETERS
     Parameters pp;
     pp.acceptedSocketPublisher = acceptedSocketPublisher;
     pp.listenSocketPublisher = listenSocketPublisher;
+    pp.empty = Empty;
+    pp.full = Full;
+    pp.buffer= recvBuf;
     Parameters* pokpp = &pp;
-    // PUBLISHER THREAD
+
+    //PUBLISHER THREAD
     threadProducer = CreateThread(NULL, 0, &ReceiveMessageProducer,pokpp, 0, &threadIDProducer);
 
-    // SUBSCRIBER THREAD PARAMETERS
+    //SUBSCRIBER THREAD PARAMETERS
     Parameters sp;
     sp.acceptedSocketPublisher = acceptedSocketSubscriber;
     sp.listenSocketPublisher = listenSocketSubscriber;
+    sp.empty = Empty;
+    sp.full = Full;
+    sp.buffer=recvBuf;
     Parameters* poksp = &sp;
-    // SUBSCRIBER THREAD
+
+    //SUBSCRIBER THREAD
     threadConsumer = CreateThread(NULL, 0, &ReceiveMessageConsumer, poksp, 0, &threadIDConsumer);
 
-    // Waiting for threads
+    //WAITING FOR THREADS
     if (threadConsumer)
         WaitForSingleObject(threadConsumer, INFINITE);
     if (threadProducer)
         WaitForSingleObject(threadProducer, INFINITE);
-   
+
+    //DELETEING CRITICAL SECTION
+   // DeleteCriticalSection(&bufferAccess);
 
     //SUBSCRIBER CONNNECTION CLOSE
     iResultSubscriber = shutdown(acceptedSocketSubscriber, SD_SEND);
@@ -194,33 +219,36 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
 
     SOCKET acceptedSocketPublisher = ((Parameters*)lpParameter)->acceptedSocketPublisher;
     SOCKET listenSocketPublisher = ((Parameters*)lpParameter)->listenSocketPublisher;
+    HANDLE empty = ((Parameters*)lpParameter)->empty;
+    HANDLE full = ((Parameters*)lpParameter)->full;
+    char* buffer = ((Parameters*)lpParameter)->buffer;
    
-    //PUBLISHER RECEIVE
-   do
-   {
-       FD_SET set;
-       timeval timeVal;
+    //BUFFER SINHRONIZATION - PRODUCER THREAD
+    while (WaitForSingleObject(empty, INFINITE) == WAIT_OBJECT_0)
+    {
+        FD_SET set;
+        timeval timeVal;
 
-       FD_ZERO(&set);
-       FD_SET(listenSocketPublisher, &set);
+        FD_ZERO(&set);
+        FD_SET(listenSocketPublisher, &set);
 
-       timeVal.tv_sec = 0;
-       timeVal.tv_usec = 0;
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
 
-       //PUBLISHER NON BLOCKING
-       iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
+        //PUBLISHER NON BLOCKING
+        iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
 
-       if (iResultPublisher == SOCKET_ERROR)
-       {
-           fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-           continue;
-       }
+        if (iResultPublisher == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
 
-       if (iResultPublisher == 0)
-       {
-           Sleep(SERVER_SLEEP_TIME);
-           continue;
-       }
+        if (iResultPublisher == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
         acceptedSocketPublisher = accept(listenSocketPublisher, NULL, NULL);
 
         if (acceptedSocketPublisher == INVALID_SOCKET)
@@ -231,6 +259,7 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
             return 1;
         }
 
+        //PUBLISHER RECEIVE
         do
         {
             FD_SET set;
@@ -255,11 +284,12 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
                 Sleep(SERVER_SLEEP_TIME);
                 continue;
             }
-            iResultPublisher = recv(acceptedSocketPublisher, recvbufPublisher, 41, 0);
+            iResultPublisher = recv(acceptedSocketPublisher, buffer, 41, 0);
 
             if (iResultPublisher > 0)
             {
-                printf("Message - received from PUBLISHER: %s\n", recvbufPublisher);
+                printf("Message - received from PUBLISHER: %s\n", buffer);
+                ReleaseSemaphore(full, 1, NULL);
             }
             else if (iResultPublisher == 0)
             {
@@ -271,9 +301,11 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
                 printf("recv  - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
                 closesocket(acceptedSocketPublisher);
             }
+
+
         } while (iResultPublisher > 0);
 
-   } while (1);
+    }
 
     return 0;
 }
@@ -285,10 +317,17 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
 
     SOCKET acceptedSocketSubscriber = ((Parameters*)lpParameter)->acceptedSocketPublisher;
     SOCKET listenSocketSubscriber = ((Parameters*)lpParameter)->listenSocketPublisher;
+    HANDLE empty = ((Parameters*)lpParameter)->empty;
+    HANDLE full = ((Parameters*)lpParameter)->full;
+    char* buffer = ((Parameters*)lpParameter)->buffer;
 
-     //SUBSCRIBER RECEIVE
-    do
+    //ADED FOR FAKE RELEASE OF WHILE
+    bool releaseWhile = false;
+
+    //BUFFER SINHRONIZATION - CONSUMER THREAD
+    while(releaseWhile == true || WaitForSingleObject(full, INFINITE) == WAIT_OBJECT_0)
     {
+        releaseWhile = false;
         FD_SET set;
         timeval timeVal;
 
@@ -304,12 +343,14 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
         if (iResultSubscriber == SOCKET_ERROR)
         {
             fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-            continue;
+             continue;
         }
 
         if (iResultSubscriber == 0)
         {
             Sleep(SERVER_SLEEP_TIME);
+            printf("Select accept sub waiting...\n");
+            releaseWhile = true;
             continue;
         }
 
@@ -323,51 +364,44 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
             return 1;
         }
 
-        do
+        FD_SET set1;
+        FD_ZERO(&set1);
+        FD_SET(acceptedSocketSubscriber, &set1);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResultSubscriber = select(0, NULL, &set1, NULL, &timeVal);
+
+        if (iResultSubscriber == SOCKET_ERROR)
         {
-            FD_SET set;
-            timeval timeVal;
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
 
-            FD_ZERO(&set);
-            FD_SET(acceptedSocketSubscriber, &set);
+        if (iResultSubscriber == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            printf("Select send sub waiting...\n");
+            continue;
+        }
 
-            timeVal.tv_sec = 0;
-            timeVal.tv_usec = 0;
+        //SUBSCRIBER SEND
+        iResultSubscriber = send(acceptedSocketSubscriber, buffer, 41, 0);
 
-            iResultSubscriber = select(0, &set, NULL, NULL, &timeVal);
+        if (iResultSubscriber == SOCKET_ERROR)
+        {
+            printf("send - [SUBSCRIBER] failed with error: %d\n", WSAGetLastError());
+            closesocket(acceptedSocketSubscriber);
+            WSACleanup();
+            return 1;
+        }
 
-            if (iResultSubscriber == SOCKET_ERROR)
-            {
-                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-                continue;
-            }
+        printf("[SUBSCRIBER] - Message Sent.\n");
+        ReleaseSemaphore(empty, 1, NULL);
 
-            if (iResultSubscriber == 0)
-            {
-                Sleep(SERVER_SLEEP_TIME);
-                continue;
-            }
+    }
 
-            iResultSubscriber = recv(acceptedSocketSubscriber, recvbufSubscriber, 42, 0);
-
-            if (iResultSubscriber > 0)
-            {
-                printf("Message - received from SUBSCRIBER: %s\n", recvbufSubscriber);
-              
-            }
-            else if (iResultSubscriber == 0)
-            {
-                printf("Connection with SUBSCRIBER closed.\n");
-                closesocket(acceptedSocketSubscriber);
-            }
-            else
-            {
-                printf("recv failed with error: %d\n", WSAGetLastError());
-                closesocket(acceptedSocketSubscriber);
-            }
-        } while (iResultSubscriber > 0);
-     
-    } while (1);
     return 0;
 }
 

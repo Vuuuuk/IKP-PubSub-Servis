@@ -53,8 +53,8 @@ int __cdecl main(int argc, char **argv)
     unsigned long int nonBlockingMode = 1;
     iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
     
-    while(1)
-    {
+   // while(1)
+    //{
    
         FD_SET set;
         timeval timeVal;
@@ -70,13 +70,13 @@ int __cdecl main(int argc, char **argv)
         if (iResult == SOCKET_ERROR)
         {
             fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-            continue;
+            //continue;
         }
 
         if (iResult == 0)
         {
             Sleep(SERVER_SLEEP_TIME);
-            continue;
+            //continue;
         }
         //MESSAGE PREPARATION
         iResult = send(connectSocket, messageToSend, (int)strlen(messageToSend) + 1, 0);
@@ -90,7 +90,8 @@ int __cdecl main(int argc, char **argv)
         }
 
         printf("[PUBLISHER] - Message Sent.\n");
-    }
+        getchar();
+   // }
 
     closesocket(connectSocket);
     WSACleanup();

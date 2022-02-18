@@ -19,6 +19,7 @@ int __cdecl main(int argc, char **argv)
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
     char *messageToSend = "This is a test message from a Subscriber.";
+    char recvBuf[DEFAULT_BUFLEN];
    
 
     if(InitializeWindowsSockets() == false)
@@ -53,46 +54,56 @@ int __cdecl main(int argc, char **argv)
     //SETTING UP NON-BLOCKING MODE
     unsigned long int nonBlockingMode = 1;
     iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
-    while (1)
+ 
+    while(1)
     {
-        
-        FD_SET set;
-        timeval timeVal;
-
-        FD_ZERO(&set);
-        FD_SET(connectSocket, &set);
-
-        timeVal.tv_sec = 0;
-        timeVal.tv_usec = 0;
-
-        iResult = select(0, NULL, &set, NULL, &timeVal);
-
-        if (iResult == SOCKET_ERROR)
+        do
         {
-            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-            continue;
-        }
+            FD_SET set;
+            timeval timeVal;
 
-        if (iResult == 0)
-        {
-            Sleep(SERVER_SLEEP_TIME);
-            continue;
-        }
+            FD_ZERO(&set);
+            FD_SET(connectSocket, &set);
 
-        //MESSAGE PREPARATION
-        iResult = send(connectSocket, messageToSend, (int)strlen(messageToSend) + 1, 0);
+            timeVal.tv_sec = 0;
+            timeVal.tv_usec = 0;
 
-        if (iResult == SOCKET_ERROR)
-        {
-            printf("send - [SUBSCRIBER] failed with error: %d\n", WSAGetLastError());
-            closesocket(connectSocket);
-            WSACleanup();
-            return 1;
-        }
+            iResult = select(0, &set, NULL, NULL, &timeVal);
 
-        printf("[SUBSCRIBER] - Message Sent.\n");
-    
+            if (iResult == SOCKET_ERROR)
+            {
+                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+                continue;
+            }
+
+            if (iResult == 0)
+            {
+                Sleep(500);
+                //printf("Select recv sub waiting...\n");
+                continue;
+            }
+
+            iResult = recv(connectSocket, recvBuf, 41, 0);
+
+            if (iResult > 0)
+            {
+                printf("Message - received from Engine: %s\n", recvBuf);
+
+            }
+            else if (iResult == 0)
+            {
+                printf("Connection with SUBSCRIBER closed.\n");
+                closesocket(connectSocket);
+            }
+            else
+            {
+                printf("recv failed with error: %d\n", WSAGetLastError());
+                closesocket(connectSocket);
+            }
+        } while (iResult > 0);
+
     }
+
     closesocket(connectSocket);
     WSACleanup();
 
