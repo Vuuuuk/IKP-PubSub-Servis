@@ -10,6 +10,15 @@
 bool InitializeWindowsSockets();
 DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter);
 DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter);
+char RingBufferGet(struct RingBuffer* buffer);
+void RingBufferPut(struct RingBuffer* buffer, char c);
+
+struct RingBuffer
+{
+    int head;
+    int tail;
+    char data[2];
+};
 
 struct Parameters
 {
@@ -17,6 +26,8 @@ struct Parameters
     SOCKET acceptedSocketPublisher;
     HANDLE empty;
     HANDLE full;
+    CRITICAL_SECTION bufferAccess;
+    RingBuffer* ringBuffer;
     char* buffer;
 
 };
@@ -38,12 +49,17 @@ int main(void)
     HANDLE threadConsumer;
     DWORD threadIDConsumer;
 
-    //Creating semaphores for sinhronization
+    //CREATING SEMAPOHORES FOR SINHRONIZATION
     HANDLE Empty = CreateSemaphore(0, 100, 100, NULL);
     HANDLE Full = CreateSemaphore(0, 0, 100, NULL);
-    HANDLE AfkSolver = CreateSemaphore(0, 0, 100, NULL);
 
-    //Safe access over shared data
+    //RING BUFFER INICIALIZATION 
+    RingBuffer ringBuffer;
+    ringBuffer.head = 0;
+    ringBuffer.tail = 0;
+    ringBuffer.data[0] = 't';
+
+    //SAFE ACCESS OVER SHARED DATA
     CRITICAL_SECTION bufferAccess;
     
     if(InitializeWindowsSockets() == false)
@@ -148,7 +164,7 @@ int main(void)
 	printf("Engine initialized, waiting for Clients/Publishers.\n\n");
 
     //CRITICAL SECTION INICIALIZATION
-   // InitializeCriticalSection(&bufferAccess);
+    InitializeCriticalSection(&bufferAccess);
 
     //PUBLISHER THREAD PARAMETERS
     Parameters pp;
@@ -156,7 +172,8 @@ int main(void)
     pp.listenSocketPublisher = listenSocketPublisher;
     pp.empty = Empty;
     pp.full = Full;
-    pp.buffer= recvBuf;
+    pp.ringBuffer = &ringBuffer;
+    pp.bufferAccess = bufferAccess;
     Parameters* pokpp = &pp;
 
     //PUBLISHER THREAD
@@ -168,7 +185,9 @@ int main(void)
     sp.listenSocketPublisher = listenSocketSubscriber;
     sp.empty = Empty;
     sp.full = Full;
-    sp.buffer=recvBuf;
+    sp.buffer = recvBuf;
+    sp.ringBuffer = &ringBuffer;
+    sp.bufferAccess = bufferAccess;
     Parameters* poksp = &sp;
 
     //SUBSCRIBER THREAD
@@ -181,7 +200,7 @@ int main(void)
         WaitForSingleObject(threadProducer, INFINITE);
 
     //DELETEING CRITICAL SECTION
-   // DeleteCriticalSection(&bufferAccess);
+    DeleteCriticalSection(&bufferAccess);
 
     //SUBSCRIBER CONNNECTION CLOSE
     iResultSubscriber = shutdown(acceptedSocketSubscriber, SD_SEND);
@@ -221,7 +240,8 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
     SOCKET listenSocketPublisher = ((Parameters*)lpParameter)->listenSocketPublisher;
     HANDLE empty = ((Parameters*)lpParameter)->empty;
     HANDLE full = ((Parameters*)lpParameter)->full;
-    char* buffer = ((Parameters*)lpParameter)->buffer;
+    RingBuffer* ringBuffer = ((Parameters*)lpParameter)->ringBuffer;
+    CRITICAL_SECTION bufferAccess = ((Parameters*)lpParameter)->bufferAccess;
    
     //BUFFER SINHRONIZATION - PRODUCER THREAD
     while (WaitForSingleObject(empty, INFINITE) == WAIT_OBJECT_0)
@@ -284,11 +304,15 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
                 Sleep(SERVER_SLEEP_TIME);
                 continue;
             }
-            iResultPublisher = recv(acceptedSocketPublisher, buffer, 41, 0);
+            iResultPublisher = recv(acceptedSocketPublisher, recvbufPublisher, 2, 0);
 
             if (iResultPublisher > 0)
             {
-                printf("Message - received from PUBLISHER: %s\n", buffer);
+                printf("Message - received from PUBLISHER: %s\n", recvbufPublisher);
+                //RING BUFFER DATA INSERTION 
+                EnterCriticalSection(&bufferAccess);
+                RingBufferPut(ringBuffer, recvbufPublisher[0]);
+                LeaveCriticalSection(&bufferAccess);
                 ReleaseSemaphore(full, 1, NULL);
             }
             else if (iResultPublisher == 0)
@@ -319,7 +343,8 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
     SOCKET listenSocketSubscriber = ((Parameters*)lpParameter)->listenSocketPublisher;
     HANDLE empty = ((Parameters*)lpParameter)->empty;
     HANDLE full = ((Parameters*)lpParameter)->full;
-    char* buffer = ((Parameters*)lpParameter)->buffer;
+    CRITICAL_SECTION bufferAccess = ((Parameters*)lpParameter)->bufferAccess;
+    RingBuffer* ringBuffer = ((Parameters*)lpParameter)->ringBuffer;
 
     //ADED FOR FAKE RELEASE OF WHILE
     bool releaseWhile = false;
@@ -386,8 +411,14 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
             continue;
         }
 
+        //READING DATA FROM RING BUFFER
+        EnterCriticalSection(&bufferAccess);
+        recvbufSubscriber[0] = RingBufferGet(ringBuffer);
+        LeaveCriticalSection(&bufferAccess);
+        printf("Procitano iz bafera: %c\n", recvbufSubscriber[0]);
+
         //SUBSCRIBER SEND
-        iResultSubscriber = send(acceptedSocketSubscriber, buffer, 41, 0);
+        iResultSubscriber = send(acceptedSocketSubscriber, recvbufSubscriber, 2, 0);
 
         if (iResultSubscriber == SOCKET_ERROR)
         {
@@ -403,6 +434,20 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
     }
 
     return 0;
+}
+char RingBufferGet(struct RingBuffer* buffer)
+{
+    int index;
+    index = buffer->head;
+    buffer->head = (buffer->head + 1) % 100;
+    return buffer->data[index];
+
+}
+
+void RingBufferPut(struct RingBuffer* buffer, char c)
+{
+    buffer->data[buffer->tail] = c;
+    buffer->tail = (buffer->tail + 1) % 100;
 }
 
 bool InitializeWindowsSockets()

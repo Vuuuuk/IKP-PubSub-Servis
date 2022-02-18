@@ -83,11 +83,11 @@ int __cdecl main(int argc, char **argv)
                 continue;
             }
 
-            iResult = recv(connectSocket, recvBuf, 41, 0);
+            iResult = recv(connectSocket, recvBuf, 2, 0);
 
             if (iResult > 0)
             {
-                printf("Message - received from Engine: %s\n", recvBuf);
+                printf("Message - received from Publisher: %c\n", recvBuf[0]);
 
             }
             else if (iResult == 0)
