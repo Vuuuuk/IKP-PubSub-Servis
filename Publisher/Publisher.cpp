@@ -17,10 +17,8 @@ int __cdecl main(int argc, char **argv)
 {
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
-    //char* messageToSend = "This is a test message from a Publisher.";
-    char* messageToSend = "m";
+    char* messageToSend = "This is a test message from a Publisher.";
    
-
     if(InitializeWindowsSockets() == false)
 		return 1;
 

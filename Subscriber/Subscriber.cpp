@@ -18,7 +18,6 @@ int __cdecl main(int argc, char **argv)
 {
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
-    char *messageToSend = "This is a test message from a Subscriber.";
     char recvBuf[DEFAULT_BUFLEN];
    
 
@@ -79,15 +78,14 @@ int __cdecl main(int argc, char **argv)
             if (iResult == 0)
             {
                 Sleep(500);
-                //printf("Select recv sub waiting...\n");
                 continue;
             }
 
-            iResult = recv(connectSocket, recvBuf, 2, 0);
+            iResult = recv(connectSocket, recvBuf, 41, 0);
 
             if (iResult > 0)
             {
-                printf("Message - received from Publisher: %c\n", recvBuf[0]);
+                printf("Message - received from Publisher: %s\n", recvBuf);
 
             }
             else if (iResult == 0)
