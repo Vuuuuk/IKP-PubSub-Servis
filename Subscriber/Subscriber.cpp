@@ -13,12 +13,16 @@
 #define DEFAULT_PORT 27000
 
 bool InitializeWindowsSockets();
+void parseRecievedData(SOCKET connectSocket);
 
 int __cdecl main(int argc, char **argv) 
 {
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
-    char recvBuf[DEFAULT_BUFLEN];
+   // char recvBuf[DEFAULT_BUFLEN];
+    char* recvBuffer = (char*)malloc(4);
+    int helpLength = 0;
+    int messageLength = 0;
    
 
     if(InitializeWindowsSockets() == false)
@@ -56,49 +60,7 @@ int __cdecl main(int argc, char **argv)
  
     while(1)
     {
-        do
-        {
-            FD_SET set;
-            timeval timeVal;
-
-            FD_ZERO(&set);
-            FD_SET(connectSocket, &set);
-
-            timeVal.tv_sec = 0;
-            timeVal.tv_usec = 0;
-
-            iResult = select(0, &set, NULL, NULL, &timeVal);
-
-            if (iResult == SOCKET_ERROR)
-            {
-                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-                continue;
-            }
-
-            if (iResult == 0)
-            {
-                Sleep(500);
-                continue;
-            }
-
-            iResult = recv(connectSocket, recvBuf, 41, 0);
-
-            if (iResult > 0)
-            {
-                printf("Message - received from Publisher: %s\n", recvBuf);
-
-            }
-            else if (iResult == 0)
-            {
-                printf("Connection with SUBSCRIBER closed.\n");
-                closesocket(connectSocket);
-            }
-            else
-            {
-                printf("recv failed with error: %d\n", WSAGetLastError());
-                closesocket(connectSocket);
-            }
-        } while (iResult > 0);
+        parseRecievedData(connectSocket);
 
     }
 
@@ -117,4 +79,119 @@ bool InitializeWindowsSockets()
         return false;
     }
 	return true;
+}
+
+// PARSING MESSAGE SIZE AND CONTENT
+void parseRecievedData(SOCKET connectSocket)
+{
+    int iResult;
+    // char recvBuf[DEFAULT_BUFLEN];
+    char* recvBuffer = (char*)malloc(4);
+    int helpLength = 0;
+    int messageLength = 0;
+
+    //SUBSCRIBER RECEIVE
+    while (helpLength < 4)
+    {
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(connectSocket, &set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResult = select(0, &set, NULL, NULL, &timeVal);
+
+        if (iResult == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResult == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+        iResult = recv(connectSocket, recvBuffer, 4, 0);
+        if (iResult > 0)
+        {
+
+            helpLength += iResult;
+
+        }
+        else if (iResult == 0)
+        {
+            printf("Connection with client closed.\n");
+            closesocket(connectSocket);
+            break;
+        }
+        else
+        {
+            printf("recv failed with error: %d\n", WSAGetLastError());
+            closesocket(connectSocket);
+            break;
+        }
+        if (helpLength == 4)
+        {
+            messageLength = *((int*)recvBuffer);
+        }
+    }
+    helpLength = 0;
+    iResult = 0;
+    recvBuffer = (char*)realloc(recvBuffer, messageLength);
+
+    while (helpLength < messageLength)
+    {
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(connectSocket, &set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResult = select(0, &set, NULL, NULL, &timeVal);
+
+        if (iResult == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResult == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+        iResult = recv(connectSocket, recvBuffer, messageLength, 0);
+        if (iResult > 0)
+        {
+
+            helpLength += iResult;
+
+        }
+        else if (iResult == 0)
+        {
+            printf("Connection with client closed.\n");
+            closesocket(connectSocket);
+            break;
+        }
+        else
+        {
+            printf("recv failed with error: %d\n", WSAGetLastError());
+            closesocket(connectSocket);
+            break;
+        }
+
+    }
+
+    if (helpLength == messageLength)
+    {
+        printf("Message received from Publisher : %s\n", recvBuffer);
+    }
+
 }
