@@ -13,7 +13,7 @@
 #define DEFAULT_PORT 27000
 
 bool InitializeWindowsSockets();
-void parseRecievedData(SOCKET connectSocket);
+void parseRecievedData(SOCKET* connectSocket);
 
 int __cdecl main(int argc, char **argv) 
 {
@@ -57,10 +57,10 @@ int __cdecl main(int argc, char **argv)
     //SETTING UP NON-BLOCKING MODE
     unsigned long int nonBlockingMode = 1;
     iResult = ioctlsocket(connectSocket, FIONBIO, &nonBlockingMode);
- 
+    SOCKET* pointerConnectSocket = &connectSocket;
     while(1)
     {
-        parseRecievedData(connectSocket);
+        parseRecievedData(pointerConnectSocket);
 
     }
 
@@ -82,10 +82,10 @@ bool InitializeWindowsSockets()
 }
 
 // PARSING MESSAGE SIZE AND CONTENT
-void parseRecievedData(SOCKET connectSocket)
+void parseRecievedData(SOCKET* pointerConnectSocket)
 {
     int iResult;
-    // char recvBuf[DEFAULT_BUFLEN];
+    SOCKET connectSocket = *pointerConnectSocket;
     char* recvBuffer = (char*)malloc(4);
     int helpLength = 0;
     int messageLength = 0;

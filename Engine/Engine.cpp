@@ -10,8 +10,120 @@
 bool InitializeWindowsSockets();
 DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter);
 DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter);
-char* RingBufferGet(struct RingBuffer* buffer, int size);
+void RingBufferGet(struct RingBuffer* buffer, int size,char* returnBuffer);
 void RingBufferPut(struct RingBuffer* buffer, char* c, int size);
+void parseRecievedData(SOCKET* acceptedSocket, char* recvBuffer, int* dataLength)
+{
+    int iResultPublisher = 0;
+    SOCKET acceptedSocketPublisher = *acceptedSocket;
+    int helpLength = 0;
+    int messageLength = 0;
+
+    while (helpLength < 4)
+    {
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(acceptedSocketPublisher, &set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
+
+        if (iResultPublisher == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResultPublisher == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+        iResultPublisher = recv(acceptedSocketPublisher, recvBuffer, 4, 0);
+        if (iResultPublisher > 0)
+        {
+
+            helpLength += iResultPublisher;
+
+        }
+        else if (iResultPublisher == 0)
+        {
+            printf("Connection with client closed.\n");
+            closesocket(acceptedSocketPublisher);
+            break;
+        }
+        else
+        {
+            printf("recv failed with error: %d\n", WSAGetLastError());
+            closesocket(acceptedSocketPublisher);
+            break;
+        }
+        if (helpLength == 4)
+        {
+            messageLength = *((int*)recvBuffer);
+        }
+    }
+    helpLength = 0;
+    iResultPublisher = 0;
+    //recvBuffer = (char*)realloc(recvBuffer, messageLength);
+
+    while (helpLength < messageLength)
+    {
+        FD_SET set;
+        timeval timeVal;
+
+        FD_ZERO(&set);
+        FD_SET(acceptedSocketPublisher, &set);
+
+        timeVal.tv_sec = 0;
+        timeVal.tv_usec = 0;
+
+        iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
+
+        if (iResultPublisher == SOCKET_ERROR)
+        {
+            fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
+            continue;
+        }
+
+        if (iResultPublisher == 0)
+        {
+            Sleep(SERVER_SLEEP_TIME);
+            continue;
+        }
+        iResultPublisher = recv(acceptedSocketPublisher, recvBuffer, messageLength, 0);
+        if (iResultPublisher > 0)
+        {
+
+            helpLength += iResultPublisher;
+
+        }
+        else if (iResultPublisher == 0)
+        {
+            printf("Connection with client closed.\n");
+            closesocket(acceptedSocketPublisher);
+            break;
+        }
+        else
+        {
+            printf("recv failed with error: %d\n", WSAGetLastError());
+            closesocket(acceptedSocketPublisher);
+            break;
+        }
+
+    }
+
+    if (helpLength == messageLength)
+    {
+        *dataLength = messageLength;
+
+    }
+
+}
 
 struct RingBuffer
 {
@@ -236,8 +348,7 @@ int main(void)
 DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
 {
     int iResultPublisher;
-    char recvbufPublisher[DEFAULT_BUFLEN];
-    char* recvBuffer= (char*)malloc(4);
+    char* recvBuffer=NULL;
     int helpLength = 0;
     int messageLength = 0;
 
@@ -252,6 +363,7 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
     //BUFFER SINHRONIZATION - PRODUCER THREAD
     while (WaitForSingleObject(empty, INFINITE) == WAIT_OBJECT_0)
     {
+
         FD_SET set;
         timeval timeVal;
 
@@ -285,114 +397,15 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
             return 1;
         }
 
-        ////PUBLISHER RECEIVE - PARSING MESSAGE SIZE AND CONTENT
-        while (helpLength < 4)
-        {
-            FD_SET set;
-            timeval timeVal;
-
-            FD_ZERO(&set);
-            FD_SET(acceptedSocketPublisher, &set);
-
-            timeVal.tv_sec = 0;
-            timeVal.tv_usec = 0;
-
-            iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
-
-            if (iResultPublisher == SOCKET_ERROR)
-            {
-                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-                continue;
-            }
-
-            if (iResultPublisher == 0)
-            {
-                Sleep(SERVER_SLEEP_TIME);
-                continue;
-            }
-            iResultPublisher = recv(acceptedSocketPublisher, recvBuffer, 4, 0);
-            if (iResultPublisher > 0)
-            {
-
-                helpLength += iResultPublisher;
-
-            }
-            else if (iResultPublisher == 0)
-            {
-                printf("Connection with client closed.\n");
-                closesocket(acceptedSocketPublisher);
-                break;
-            }
-            else
-            {
-                printf("recv failed with error: %d\n", WSAGetLastError());
-                closesocket(acceptedSocketPublisher);
-                break;
-            }
-            if (helpLength == 4)
-            {
-                messageLength = *((int*)recvBuffer);
-            }
-        }
-        helpLength = 0;
-        iResultPublisher = 0;
-        recvBuffer = (char*)realloc(recvBuffer, messageLength);
-
-        while (helpLength < messageLength)
-        {
-            FD_SET set;
-            timeval timeVal;
-
-            FD_ZERO(&set);
-            FD_SET(acceptedSocketPublisher, &set);
-
-            timeVal.tv_sec = 0;
-            timeVal.tv_usec = 0;
-
-            iResultPublisher = select(0, &set, NULL, NULL, &timeVal);
-
-            if (iResultPublisher == SOCKET_ERROR)
-            {
-                fprintf(stderr, "select - [SUBSCRIBER] failed with error: %ld\n", WSAGetLastError());
-                continue;
-            }
-
-            if (iResultPublisher == 0)
-            {
-                Sleep(SERVER_SLEEP_TIME);
-                continue;
-            }
-            iResultPublisher = recv(acceptedSocketPublisher, recvBuffer, messageLength, 0);
-            if (iResultPublisher > 0)
-            {
-
-                helpLength += iResultPublisher;
-
-            }
-            else if (iResultPublisher == 0)
-            {
-                printf("Connection with client closed.\n");
-                closesocket(acceptedSocketPublisher);
-                break;
-            }
-            else
-            {
-                printf("recv failed with error: %d\n", WSAGetLastError());
-                closesocket(acceptedSocketPublisher);
-                break;
-            }
-
-        }
-
-        if (helpLength == messageLength)
-        {
-            *dataLength = messageLength;
-            printf("Primljena poruka je %s\n", recvBuffer);
-            EnterCriticalSection(&bufferAccess);
-            RingBufferPut(ringBuffer, recvBuffer, messageLength);
-            LeaveCriticalSection(&bufferAccess);
-            ReleaseSemaphore(full, 1, NULL);
-        }
+        recvBuffer = (char*)malloc(DEFAULT_BUFLEN);
+        //PUBLISHER RECEIVE - PARSING MESSAGE SIZE AND CONTENT
+        parseRecievedData(&acceptedSocketPublisher, recvBuffer, dataLength);
+        printf("Received message from Publisher : %s\n", recvBuffer);
+        EnterCriticalSection(&bufferAccess);
+        RingBufferPut(ringBuffer, recvBuffer, *dataLength);
+        LeaveCriticalSection(&bufferAccess);
+        free(recvBuffer);
+        ReleaseSemaphore(full, 1, NULL);
     }
     return 0;
 }
@@ -400,7 +413,7 @@ DWORD WINAPI ReceiveMessageProducer(LPVOID lpParameter)
 DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
 {
     int iResultSubscriber;
-    char* recvbufSubscriber=NULL;
+    char* recvbufSubscriber=(char*)malloc(DEFAULT_BUFLEN);
 
     SOCKET acceptedSocketSubscriber = ((Parameters*)lpParameter)->acceptedSocketPublisher;
     SOCKET listenSocketSubscriber = ((Parameters*)lpParameter)->listenSocketPublisher;
@@ -410,12 +423,15 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
     RingBuffer* ringBuffer = ((Parameters*)lpParameter)->ringBuffer;
     int* dataLength = ((Parameters*)lpParameter)->dataLength;
 
+   
     //ADED FOR FAKE RELEASE OF WHILE
     bool releaseWhile = false;
 
     //BUFFER SINHRONIZATION - CONSUMER THREAD
     while(releaseWhile == true || WaitForSingleObject(full, INFINITE) == WAIT_OBJECT_0)
     {
+        int length = *dataLength;
+       // recvbufSubscriber = (char*)malloc(length);
         releaseWhile = false;
         FD_SET set;
         timeval timeVal;
@@ -478,16 +494,16 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
 
         //DATA TO SENT WITH MESSAGE SIZE AND CONTETNT
         EnterCriticalSection(&bufferAccess);
-       // recvbufSubscriber = RingBufferGet(ringBuffer, (*dataLength));
-        char* headerAndData = (char*)malloc((*dataLength) + 4);
-        *((int*)headerAndData) = (*dataLength);
+        RingBufferGet(ringBuffer, length, recvbufSubscriber);
+        char* headerAndData = (char*)malloc(length + 4);
+        *((int*)headerAndData) = length;
         //READING DATA FROM RING BUFFER
-        memcpy(headerAndData + 4, RingBufferGet(ringBuffer, (*dataLength)), (*dataLength));
-        //printf("Procitano iz bafera: %s\n", recvbufSubscriber);
+        printf("Read from ring buffer: %s\n", recvbufSubscriber);
+        memcpy(headerAndData + 4, recvbufSubscriber, length);
         LeaveCriticalSection(&bufferAccess);
 
         //SUBSCRIBER SEND
-        iResultSubscriber = send(acceptedSocketSubscriber, headerAndData, (*dataLength) + 4, 0);
+        iResultSubscriber = send(acceptedSocketSubscriber, headerAndData, length + 4, 0);
 
         if (iResultSubscriber == SOCKET_ERROR)
         {
@@ -498,23 +514,25 @@ DWORD WINAPI ReceiveMessageConsumer(LPVOID lpParameter)
         }
 
         printf("[PUBLISHER] - Message Sent.\n");
+        free(recvbufSubscriber);
+        free(headerAndData);
         ReleaseSemaphore(empty, 1, NULL);
     }
 
     return 0;
 }
-char* RingBufferGet(struct RingBuffer* buffer, int size)
+void RingBufferGet(struct RingBuffer* buffer, int size, char* returnBuffer)
 {
     int index;
     char retData[DEFAULT_BUFLEN];
     for (int i = 0; i < size; i++)
     {
         index = buffer->head;
-        retData[i] = buffer->data[index];
+        returnBuffer[i] = buffer->data[index];
         buffer->head = (buffer->head + 1) % 100;
     }
    
-    return retData;
+   // return returnBuffer;
 
 }
 
