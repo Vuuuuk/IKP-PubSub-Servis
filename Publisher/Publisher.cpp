@@ -10,20 +10,61 @@
 #define SERVER_SLEEP_TIME 50
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT 28000
+struct DataToPublish
+{
+    char topic[6];
+    char type[3];
+    char message[DEFAULT_BUFLEN];
+};
 
 bool InitializeWindowsSockets();
+void GenerateStringWithDelimiter(char* string, int stringLength, char* stringWithDelimiter, int* stringWithDelimiterLength);
+
 
 int __cdecl main(int argc, char **argv) 
 {
     SOCKET connectSocket = INVALID_SOCKET;
     int iResult;
     char* messageToSend = "This is a test message from a Publisher.";
+    char* topic = "STATUS";
+    char* type = "MER";
+
+    // STRINGS WITH DELIMITERS
+    int len =(int)strlen(topic);
+    char* topicWithDelimiter = (char*)malloc(len + 1 + 1);
+    int topicWithDelimiterLength = 0;
+    GenerateStringWithDelimiter(topic,len, topicWithDelimiter, &topicWithDelimiterLength);
+    //printf("Topic with delimiter-> %s\n", topicWithDelimiter);
+    //printf("Topic with delimiter length-> %d\n",topicWithDelimiterLength);
+
+    len = (int)strlen(type);
+    int typeWithDelimiterLength =0;
+    char* typeWithDelimiter = (char*)malloc(len + 1 + 1);
+    GenerateStringWithDelimiter(type, len, typeWithDelimiter, &typeWithDelimiterLength);
+    //printf("Type with delimiter %s\n", typeWithDelimiter);
+    //printf("Type with delimiter length -> %d\n", typeWithDelimiterLength);
+   
+    int messageToSendLength = (int)strlen(messageToSend);
+   // printf("Message-> %d\n", messageToSendLength);
+
+    //CONCATENATED STRINGS WITH DELIMITERS
+    int size = topicWithDelimiterLength + typeWithDelimiterLength + messageToSendLength;
+    //printf("Size of data to sent %d\n",size);
+    char* dataToSent = (char*)malloc(topicWithDelimiterLength + typeWithDelimiterLength + messageToSendLength);
+    int offset = 0;
+    memcpy(dataToSent, topicWithDelimiter, topicWithDelimiterLength);
+    offset += topicWithDelimiterLength;
+    memcpy(dataToSent+ offset, typeWithDelimiter, typeWithDelimiterLength);
+    offset += typeWithDelimiterLength;
+    memcpy(dataToSent+offset, messageToSend, messageToSendLength+1);
+
+    printf("String to send %s\n", dataToSent);
 
     //DATA TO SENT WITH MESSAGE SIZE AND CONTETNT
-    int length = (int)strlen(messageToSend) + 1;
+    int length = size+1;
     char* headerAndData = (char*)malloc(length + 4);
     *((int*)headerAndData) = length;
-    memcpy(headerAndData + 4, messageToSend, length);
+    memcpy(headerAndData + 4, dataToSent, length);
 
     if(InitializeWindowsSockets() == false)
 		return 1;
@@ -83,7 +124,6 @@ int __cdecl main(int argc, char **argv)
     }
     //MESSAGE PREPARATION
     iResult = send(connectSocket, headerAndData, length+4, 0);
-
     if (iResult == SOCKET_ERROR)
     {
         printf("send - [PUBLISHER] failed with error: %d\n", WSAGetLastError());
@@ -112,3 +152,14 @@ bool InitializeWindowsSockets()
     }
 	return true;
 }
+
+void GenerateStringWithDelimiter(char* string, int stringLength, char* stringWithDelimiter, int* stringWithDelimiterLength)
+{
+    strcpy(stringWithDelimiter, string);
+    stringWithDelimiter[stringLength] = '+';
+    stringWithDelimiter[stringLength + 1] = '\0';
+    *stringWithDelimiterLength = (int)strlen(stringWithDelimiter);
+    //printf("String with delimiter: %s\n", stringWithDelimiter);
+    //printf("Length of string with delimiter: %d\n", *stringWithDelimiterLength);
+}
+
